@@ -5,13 +5,19 @@
 %{!?nfsmountable: %global nfsmountable 1}
 %scl_package %scl
 
+%{!?scl_perl:%global scl_perl rh-perl524}
+%{!?scl_prefix_perl:%global scl_prefix_perl %{scl_perl}-}
+
 # do not produce empty debuginfo package
 %global debug_package %{nil}
+
+%global nginx_perl_vendorarch %{_scl_root}%(eval "`%{_root_bindir}/perl -V:installvendorarch`"; echo $installvendorarch)
+%global nginx_perl_archlib %{_scl_root}%(eval "`%{_root_bindir}/perl -V:archlib`"; echo $archlib)
 
 Summary:       Package that installs %scl
 Name:          %scl_name
 Version:       1.10
-Release:       3%{?dist}
+Release:       8%{?dist}
 License:       GPLv2+
 Group: Applications/File
 Source0: README
@@ -39,6 +45,7 @@ Package shipping essential scripts to work with %scl Software Collection.
 %package build
 Summary:   Package shipping basic build configuration
 Requires:  scl-utils-build
+Requires: %{scl_prefix_perl}scldevel
 
 %description build
 Package shipping essential configuration macros to build %scl Software Collection.
@@ -73,9 +80,13 @@ sed -i 's|%%{service_start}|service %{scl_name}-nginx start|g' README.7
 #export LD_LIBRARY_PATH=%{_libdir}\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}
 
 cat <<EOF | tee enable
+if scl -l  | grep %{scl_perl} >&/dev/null; then
+  . scl_source enable %{scl_perl}
+fi
 export PATH=%{_bindir}:%{_sbindir}\${PATH:+:\${PATH}}
 export MANPATH=%{_mandir}:\${MANPATH}
 export PKG_CONFIG_PATH=%{_libdir}/pkgconfig\${PKG_CONFIG_PATH:+:\${PKG_CONFIG_PATH}}
+export PERL5LIB="%{nginx_perl_vendorarch}\${PERL5LIB:+:\${PERL5LIB}}"
 EOF
 
 # generate rpm macros file for depended collections
@@ -91,13 +102,23 @@ mkdir -p %{buildroot}%{_scl_scripts}/root
 install -m 644 enable  %{buildroot}%{_scl_scripts}/enable
 install -D -m 644 scldev %{buildroot}%{_root_sysconfdir}/rpm/macros.%{scl_name_base}-scldevel
 
-mkdir -p %{buildroot}%{_localstatedir}/run/
+mkdir -p -m 755 \
+      %{buildroot}%{_localstatedir}/run/ \
+      %{buildroot}%{nginx_perl_vendorarch}
 
 # install generated man page
 mkdir -p %{buildroot}%{_mandir}/man7/
 install -m 644 README.7 %{buildroot}%{_mandir}/man7/%{scl_name}.7
 
 %scl_install
+
+cat >> %{buildroot}%{_root_sysconfdir}/rpm/macros.%{scl}-config << EOF
+%%scl_package_override() %%{expand:%%global __perl_requires /usr/lib/rpm/perl.req.rh-perl524 \
+%%global __perl_provides /usr/lib/rpm/perl.prov.rh-perl524 \
+%%global __perl %{_scl_prefix}/%{scl_perl}/root/usr/bin/perl \
+%%global _nginx_perl_vendorarch %{nginx_perl_vendorarch} \
+}
+EOF
 
 # create directory for SCL register scripts
 mkdir -p %{buildroot}%{?_scl_scripts}/register.content
@@ -133,11 +154,14 @@ selinuxenabled && load_policy || :
 %defattr(-,root,root)
 %doc README LICENSE
 %scl_files
+%dir %{_mandir}/man3
 %dir %{_mandir}/man7
 %dir %{_mandir}/man8
 %{_mandir}/man7/%{scl_name}.*
 
 %dir %{_localstatedir}/run
+%dir %{nginx_perl_archlib}
+%dir %{nginx_perl_vendorarch}
 
 %attr(0755,root,root) %{?_scl_scripts}/register
 %attr(0755,root,root) %{?_scl_scripts}/deregister
@@ -154,6 +178,23 @@ selinuxenabled && load_policy || :
 %{_root_sysconfdir}/rpm/macros.%{scl_name_base}-scldevel
 
 %changelog
+* Thu Mar 23 2017 Joe Orton <jorton@redhat.com> - 1.10-8
+- own perl directories (#1434333)
+
+* Thu Mar  2 2017 Joe Orton <jorton@redhat.com> - 1.10-7
+- fix quoting in scl_package_override
+
+* Thu Mar  2 2017 Joe Orton <jorton@redhat.com> - 1.10-6
+- own man3 directory
+- fix Perl autoprov/autoreq
+
+* Wed Mar  1 2017 Joe Orton <jorton@redhat.com> - 1.10-5
+- define macro _nginx_perl_vendorarch in -config
+- set PERL5LIB in SCL env (#1421927)
+
+* Tue Feb 28 2017 Joe Orton <jorton@redhat.com> - 1.10-4
+- add Perl support (#1421927)
+
 * Thu Jan 19 2017 Joe Orton <jorton@redhat.com> - 1.10-3
 - require nginx
 
